@@ -93,12 +93,14 @@ mark{background:#ffe08a;color:#1b1300;border-radius:3px;padding:0 1px}
     <span id="res"></span>
     <div class="acts">
       <button class="btn" id="bImp">استيراد قائمة</button>
+      <button class="btn" id="bSync">تحديث الدليل</button>
       <button class="btn" id="bExp">نسخة احتياطية</button>
       <button class="btn pri" id="bAdd">+ تحويلة جديدة</button>
     </div>
   </div>
   <div class="list" id="list"></div>
   <p class="note" id="mode"></p>
+  <p class="note"><button class="btn" id="bAdmin" style="height:36px;font-size:13px">إدارة الدليل (للمسؤول)</button></p>
   <p class="note">تصميم وتطوير: مسفر القحطاني</p>
 </main>
 
@@ -125,6 +127,16 @@ mark{background:#ffe08a;color:#1b1300;border-radius:3px;padding:0 1px}
     <div class="f"><textarea id="iBulk" placeholder="1234، أحمد الشهري، رئيس قسم الطوارئ، الطوارئ"></textarea></div>
     <div class="warn" id="impMsg"></div>
     <div class="dacts"><span></span><div class="grp"><button type="button" class="btn" data-close>إلغاء</button><button class="btn pri" type="submit">استيراد</button></div></div>
+  </form>
+</div>
+
+<div class="ov" id="ovA" role="dialog" aria-modal="true" aria-labelledby="aT">
+  <form class="dlg" id="fA">
+    <h2 id="aT">إدارة الدليل</h2>
+    <p class="ttl" style="margin-top:0">النشر يرفع قائمتك الحالية كاملة لتصل لكل من ثبّت التطبيق. يحتاج «مفتاح النشر» مرة واحدة فقط، ويبقى محفوظًا في جوالك.</p>
+    <div class="f"><label for="iTok">مفتاح النشر (GitHub token)</label><input id="iTok" type="password" dir="ltr" autocomplete="off" placeholder="github_pat_…"></div>
+    <div class="warn" id="aMsg"></div>
+    <div class="dacts"><button type="button" class="btn" data-close>إغلاق</button><button class="btn pri" type="submit">نشر الدليل للجميع</button></div>
   </form>
 </div>
 
@@ -253,7 +265,53 @@ $('#fI').addEventListener('submit',async e=>{
 });
 
 items=lsGet();render();
-$('#mode').textContent='البيانات محفوظة على جوالك وتعمل بدون إنترنت · احتفظ بنسخة احتياطية من «نسخ الكل».';
+$('#mode').textContent='البيانات محفوظة على جوالك وتعمل بدون إنترنت.';
+
+const REPO='mes9119-eng/PhoneDirectory',FILE='directory.json';
+const RAW='https://raw.githubusercontent.com/'+REPO+'/main/'+FILE;
+const API='https://api.github.com/repos/'+REPO+'/contents/'+FILE;
+const cbs={};let cbn=0;
+window.__cb=(id,status,body)=>{const f=cbs[id];delete cbs[id];if(f)f({status,body})};
+function http(method,url,headers,body){
+  if(window.Android&&Android.http)return new Promise(res=>{const id='c'+(++cbn);cbs[id]=res;Android.http(id,method,url,JSON.stringify(headers||{}),body||'')});
+  return fetch(url,{method,headers,body:body||undefined,cache:'no-store'}).then(async r=>({status:r.status,body:await r.text()})).catch(()=>({status:0,body:''}));
+}
+const kv=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}};
+async function pull(manual){
+  if(manual)toast('جارٍ التحقق من التحديث…');
+  const r=await http('GET',RAW+'?t='+Date.now(),{});
+  if(r.status!==200){if(manual)toast(r.status===404?'لم يُنشر دليل بعد':'تعذّر الاتصال، تأكد من الإنترنت');return}
+  let d;try{d=JSON.parse(r.body)}catch(e){if(manual)toast('ملف الدليل المنشور غير صالح');return}
+  if(!d||!Array.isArray(d.items)||!d.items.length){if(manual)toast('لم يُنشر دليل بعد');return}
+  if(!manual&&kv('ext-pub-ver')===d.updated)return;
+  const mine=items.filter(x=>x.src!=='pub'&&!d.items.some(y=>y.id===x.id));
+  items=d.items.filter(x=>x&&x.ext).map(x=>({id:String(x.id||uid()),ext:String(x.ext),name:String(x.name||''),title:String(x.title||''),dept:String(x.dept||''),note:String(x.note||''),updated:String(x.updated||''),src:'pub'})).concat(mine);
+  lsPut();kv('ext-pub-ver',d.updated||'');render();
+  const dt=d.updated?new Date(d.updated).toLocaleDateString('ar-SA-u-nu-latn'):'';
+  $('#mode').textContent='الدليل محدّث'+(dt?' · آخر نشر '+dt:'')+' · يعمل بدون إنترنت';
+  toast('تم تحديث الدليل ('+d.items.length+' تحويلة)');
+}
+$('#bSync').onclick=()=>pull(true);
+$('#bAdmin').onclick=()=>{$('#iTok').value=kv('ext-tok')||'';$('#aMsg').textContent='';$('#ovA').classList.add('on')};
+$('#fA').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const tok=$('#iTok').value.trim();if(!tok){$('#aMsg').textContent='أدخل مفتاح النشر أولًا';return}
+  if(!items.length){$('#aMsg').textContent='الدليل فارغ، أضف تحويلات قبل النشر';return}
+  kv('ext-tok',tok);$('#aMsg').textContent='جارٍ النشر…';
+  const H={'Authorization':'Bearer '+tok,'Accept':'application/vnd.github+json'};
+  const g=await http('GET',API,H);
+  let sha;if(g.status===200){try{sha=JSON.parse(g.body).sha}catch(_){}}
+  else if(g.status===401){$('#aMsg').textContent='المفتاح غير صحيح أو منتهي';return}
+  const ver=new Date().toISOString();
+  const data={updated:ver,items:items.map(({id,ext,name,title,dept,note,updated})=>({id,ext,name,title,dept,note,updated}))};
+  const b64=btoa(unescape(encodeURIComponent(JSON.stringify(data,null,1))));
+  const body={message:'تحديث الدليل ('+items.length+' تحويلة)',content:b64};if(sha)body.sha=sha;
+  const p=await http('PUT',API,Object.assign({'Content-Type':'application/json'},H),JSON.stringify(body));
+  if(p.status===200||p.status===201){items.forEach(x=>x.src='pub');lsPut();kv('ext-pub-ver',ver);close();toast('نُشر الدليل للجميع ('+items.length+' تحويلة)')}
+  else $('#aMsg').textContent=p.status===0?'تعذّر الاتصال، تأكد من الإنترنت':(p.status===401||p.status===403||p.status===404)?'المفتاح لا يملك صلاحية الكتابة على المستودع':'فشل النشر (رمز '+p.status+')';
+});
+setTimeout(()=>pull(false),400);
+
 }
 </script>
 </body>
