@@ -2,6 +2,8 @@ name: Build APK
 on:
   push:
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -15,3 +17,11 @@ jobs:
       - run: cp app/build/outputs/apk/debug/app-debug.apk PhoneDirectory.apk
       - uses: actions/upload-artifact@v4
         with: { name: PhoneDirectory-apk, path: PhoneDirectory.apk }
+      - name: Publish permanent download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: دليل التحويلات
+          make_latest: true
+          body: "تطبيق دليل التحويلات — تصميم وتطوير: مسفر القحطاني"
+          files: PhoneDirectory.apk
