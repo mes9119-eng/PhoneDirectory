@@ -18,6 +18,8 @@ android {
         }
     }
     buildTypes {
-        debug { signingConfig signingConfigs.fixed } release { minifyEnabled false } }
+        debug { signingConfig signingConfigs.fixed }
+        release { minifyEnabled false }
+    }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
